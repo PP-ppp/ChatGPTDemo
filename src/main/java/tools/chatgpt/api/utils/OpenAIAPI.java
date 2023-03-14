@@ -62,6 +62,8 @@ public class OpenAIAPI {
         return message.getStr("content");
     }
 
+
+
     public static void main(String[] args) {
         System.out.println(chat("那有没有换种说法？"));
     }
