@@ -6,16 +6,19 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
-import lombok.experimental.UtilityClass;
+import org.springframework.context.annotation.Configuration;
+import tools.mongoDB.utils.MongoDBUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
-@UtilityClass
+@Configuration
 public class OpenAIAPI {
+
+    private MongoDBUtils mongoDBUtils = MongoDBUtils.getInstance();
+
     /**
      * 聊天端点
      */
@@ -23,18 +26,20 @@ public class OpenAIAPI {
     /**
      * api密匙
      */
-    String apiKey = "Bearer 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";
+    String apiKey = "Bearer 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";
 
     /**
      * 发送消息
      *
-     * @param txt 内容
-     * @return {@link String}
+     * @param txt 内容 {@link String} userId 用户id {@link String} sessionId 会话id  {@link String}
+     * @return {@link String} 返回消息
      */
-    public String chat(String txt) {
+    public String chat(String userId, String sessionId, String txt) {
         Map<String, Object> paramMap = new HashMap<>();
         paramMap.put("model", "gpt-3.5-turbo");
         List<Map<String, String>> dataList = new ArrayList<>();
+        List<Map<String, String>> dialogues = getDialogues(userId, sessionId);
+        dataList.addAll(dialogues);
         dataList.add(new HashMap<String, String>(){{
             put("role", "user");
             put("content", txt);
@@ -51,9 +56,13 @@ public class OpenAIAPI {
                 .execute()
                 .body();
             JSONObject jsonObject = JSONUtil.parseObj(body);
+            System.out.println(jsonObject);
             JSONArray choices = jsonObject.getJSONArray("choices");
             JSONObject result = choices.get(0, JSONObject.class, Boolean.TRUE);
             message = result.getJSONObject("message");
+            //        将对话信息添加到对话历史列表中
+            mongoDBUtils.saveDialogue(userId, sessionId, txt);
+            mongoDBUtils.saveDialogue(userId, sessionId,  message.getStr("content"));
         } catch (HttpException e) {
             return "出现了异常";
         } catch (ConvertException e) {
@@ -62,9 +71,31 @@ public class OpenAIAPI {
         return message.getStr("content");
     }
 
-
-
-    public static void main(String[] args) {
-        System.out.println(chat("那有没有换种说法？"));
+//从mongoDB中获取对话历史,然后将list按照一个user一个assistant的顺序，塞入 List<Map<String, String>> dataList中
+    public List<Map<String, String>> getDialogues(String userId, String sessionId) {
+        List<String> dialogues = mongoDBUtils.getDialogues(userId, sessionId);
+        List<Map<String, String>> dataList = new ArrayList<>();
+        for (int i = 0; i < dialogues.size(); i++) {
+            if (i % 2 == 0) {
+                int finalI = i;
+                dataList.add(new HashMap<String, String>() {{
+                    put("role", "user");
+                    put("content", dialogues.get(finalI));
+                }});
+            } else {
+                int finalI1 = i;
+                dataList.add(new HashMap<String, String>() {{
+                    put("role", "assistant");
+                    put("content", dialogues.get(finalI1));
+                }});
+            }
+        }
+        return dataList;
     }
+
+//    调用MongoDB删除对话历史
+    public void deleteDialogues(String userId, String sessionId) {
+        mongoDBUtils.deleteDialoguesByKey(userId, sessionId);
+    }
+
 }
